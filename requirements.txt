@@ -5,4 +5,16 @@ langchain-community
 langchain-huggingface
 supabase
 pymupdf
+
+# --- Vector Database & Embeddings ---
+supabase
 sentence-transformers
+torch
+torchvision
+
+
+
+# --- Vector Database & Embeddings ---
+faiss-cpu
+sentence-transformers
+huggingface-hub
