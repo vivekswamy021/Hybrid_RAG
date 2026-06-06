@@ -96,7 +96,7 @@ with st.sidebar:
                         loader = PyMuPDFLoader(tmp_file_path)
                         docs = loader.load()
 
-                        text_splitter = RecursiveCharacterTextSplitter(chunk_size=2500, chunk_overlap=800)
+                        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
                         splits = text_splitter.split_documents(docs)
 
                         # Generate a list of unique strings for the ID column 
@@ -133,8 +133,7 @@ for msg in st.session_state.messages:
 # -------------------------------
 # 6️⃣ User Input & Hybrid RAG Logic
 # -------------------------------
-
-user_query = st.chat_input("Ask something about your document...")
+user_query = st.chat_input("Type your message...")
 
 if user_query:
     st.session_state.messages.append(HumanMessage(content=user_query))
@@ -146,26 +145,13 @@ if user_query:
         embeddings = get_embeddings()
         query_vector = embeddings.embed_query(user_query)
         
-        # Cleaned and optimize the text search for numbers/ranges
-        # If search query contains numbers, isolated them so pg_tsquery doesn't choke on stop words
-        search_keywords = user_query
-        import re
-        numbers = re.findall(r'\d+', user_query)
-        if len(numbers) >= 2:
-            try:
-                start, end = int(numbers[0]), int(numbers[1])
-                if start < end and (end - start) <= 20:
-                    search_keywords = " | ".join(str(num) for num in range(start, end + 1))
-            except ValueError:
-                pass
-                
         # Calling Hybrid Search via Supabase RPC
         response = supabase.rpc(
             "match_documents", 
             {
                 "query_embedding": query_vector,  # Semantic Search Vector
-                "query_text": search_keywords,         # Keyword Search Text
-                "match_count": 25
+                "query_text": user_query,         # Keyword Search Text
+                "match_count": 10
             } 
         ).execute()
         
@@ -181,20 +167,12 @@ if user_query:
                 "CRITICAL INSTRUCTIONS:\n"
                 "1. NEVER say you cannot read or access files. You have the file text right below.\n"
                 "2. If the user asks about the documents, summarize or extract from the Context.\n"
-                "3. If the user asks for a specific range of numbers, items,"
-                "carefully extract exactly those items from the Context.\n"
-                "4. Present them in a clean, sequentially ordered, structured list.\n"
-                "5. If an item within that range is completely missing from the Context, state explicitly "
-                "which ones could not be found.\n"
-                "6. If the answer cannot be answered from the Context at all, say 'I cannot find that in the documents.\n"
-                f"Context from uploaded files:\n{context}"
-                "7. Pay close attention to numbering, indices, and specific counts within lists.'\n\n"
+                "3. If the answer is not in the Context, say 'I cannot find that in the documents.'\n\n"
                 f"Context from uploaded files:\n{context}"
             )
             messages_for_llm[0] = SystemMessage(content=rag_system_prompt)
             
     except Exception as e:
-        # If DB fails, we log it, but messages_for_llm still exists as a normal conversation
         st.error(f"Database search failed: {e}")
 
     # Generate assistant response using streaming
@@ -203,20 +181,13 @@ if user_query:
         full_response = ""
 
         try:
-            # 🌟 FIX 2: Safe streaming parsing logic handled here
+            # 🌟 Streaming implementation remains clean with LangChain unified interface
             for chunk in llm.stream(messages_for_llm):
-                if isinstance(chunk.content, str):
-                    chunk_text = chunk.content
-                elif isinstance(chunk.content, list):
-                    chunk_text = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in chunk.content])
-                else:
-                    chunk_text = str(chunk.content)
-
-                full_response += chunk_text
+                full_response += chunk.content
                 response_placeholder.markdown(full_response + "▌")
             
             response_placeholder.markdown(full_response)
             st.session_state.messages.append(AIMessage(content=full_response))
             
         except Exception as e:
-            st.error(f"An error occurred during LLM generation: {e}")
+            st.error(f"An error occurred: {e}")
