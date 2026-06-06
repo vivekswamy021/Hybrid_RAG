@@ -168,8 +168,14 @@ if user_query:
                 "CRITICAL INSTRUCTIONS:\n"
                 "1. NEVER say you cannot read or access files. You have the file text right below.\n"
                 "2. If the user asks about the documents, summarize or extract from the Context.\n"
-                "3. If the answer is not in the Context, say 'I cannot find that in the documents.\n"
-                "4. Pay close attention to numbering, indices, and specific counts within lists.'\n\n"
+                "3. If the user asks for a specific range of numbers, items,"
+                "carefully extract exactly those items from the Context.\n"
+                "4. Present them in a clean, sequentially ordered, structured list.\n"
+                "5. If an item within that range is completely missing from the Context, state explicitly "
+                "which ones could not be found.\n"
+                "6. If the answer cannot be answered from the Context at all, say 'I cannot find that in the documents.\n"
+                f"Context from uploaded files:\n{context}"
+                "7. Pay close attention to numbering, indices, and specific counts within lists.'\n\n"
                 f"Context from uploaded files:\n{context}"
             )
             messages_for_llm[0] = SystemMessage(content=rag_system_prompt)
