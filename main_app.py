@@ -176,18 +176,28 @@ if user_query:
         st.error(f"Database search failed: {e}")
 
     # Generate assistant response using streaming
-    with st.chat_message("assistant"):
-        response_placeholder = st.empty()
-        full_response = ""
+  # Generate assistant response using streaming
+with st.chat_message("assistant"):
+    response_placeholder = st.empty()
+    full_response = ""
 
-        try:
-            # 🌟 Streaming implementation remains clean with LangChain unified interface
-            for chunk in llm.stream(messages_for_llm):
-                full_response += chunk.content
-                response_placeholder.markdown(full_response + "▌")
-            
-            response_placeholder.markdown(full_response)
-            st.session_state.messages.append(AIMessage(content=full_response))
-            
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
+    try:
+        # Unified streaming extraction
+        for chunk in llm.stream(messages_for_llm):
+            # parse chunk content if it comes as a list or a string
+            if isinstance(chunk.content, str):
+                chunk_text = chunk.content
+            elif isinstance(chunk.content, list):
+                # Extract text blocks if it's a list of dictionaries
+                chunk_text = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in chunk.content])
+            else:
+                chunk_text = str(chunk.content)
+
+            full_response += chunk_text
+            response_placeholder.markdown(full_response + "▌")
+        
+        response_placeholder.markdown(full_response)
+        st.session_state.messages.append(AIMessage(content=full_response))
+        
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
