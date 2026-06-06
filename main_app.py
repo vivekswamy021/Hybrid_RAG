@@ -96,7 +96,7 @@ with st.sidebar:
                         loader = PyMuPDFLoader(tmp_file_path)
                         docs = loader.load()
 
-                        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=500)
+                        text_splitter = RecursiveCharacterTextSplitter(chunk_size=2500, chunk_overlap=800)
                         splits = text_splitter.split_documents(docs)
 
                         # Generate a list of unique strings for the ID column 
