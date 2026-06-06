@@ -133,19 +133,34 @@ for msg in st.session_state.messages:
 # -------------------------------
 # 6️⃣ User Input & Hybrid RAG Logic
 # -------------------------------
-user_query = st.chat_input("Type your message...")
+# -------------------------------
+# 6️⃣ User Input & Hybrid RAG Logic
+# -------------------------------
+user_query = st.chat_input("Ask something about your document...")
 
 if user_query:
     st.session_state.messages.append(HumanMessage(content=user_query))
     st.chat_message("user").write(user_query)
 
-    # 🌟 FIX 1: Always define messages_for_llm right away so it always exists
     messages_for_llm = st.session_state.messages.copy()
 
     try:
         embeddings = get_embeddings()
         query_vector = embeddings.embed_query(user_query)
         
+        # Cleaned and optimize the text search for numbers/ranges
+        # If search query contains numbers, isolated them so pg_tsquery doesn't choke on stop words
+        search_keywords = user_query
+        import re
+        numbers = re.findall(r'\d+', user_query)
+        if len(numbers) >= 2:
+            try:
+                start, end = int(numbers[0]), int(numbers[1])
+                if start < end and (end - start) <= 20:
+                    search_keywords = " | ".join(str(num) for num in range(start, end + 1))
+            except ValueError:
+                pass
+                
         # Calling Hybrid Search via Supabase RPC
         response = supabase.rpc(
             "match_documents", 
