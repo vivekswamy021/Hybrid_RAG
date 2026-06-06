@@ -133,9 +133,7 @@ for msg in st.session_state.messages:
 # -------------------------------
 # 6️⃣ User Input & Hybrid RAG Logic
 # -------------------------------
-# -------------------------------
-# 6️⃣ User Input & Hybrid RAG Logic
-# -------------------------------
+
 user_query = st.chat_input("Ask something about your document...")
 
 if user_query:
@@ -166,7 +164,7 @@ if user_query:
             "match_documents", 
             {
                 "query_embedding": query_vector,  # Semantic Search Vector
-                "query_text": user_query,         # Keyword Search Text
+                "query_text": search_keywords,         # Keyword Search Text
                 "match_count": 25
             } 
         ).execute()
