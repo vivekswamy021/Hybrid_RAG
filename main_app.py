@@ -152,7 +152,7 @@ if user_query:
             {
                 "query_embedding": query_vector,  # Semantic Search Vector
                 "query_text": user_query,         # Keyword Search Text
-                "match_count": 15
+                "match_count": 25
             } 
         ).execute()
         
