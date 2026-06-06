@@ -139,6 +139,7 @@ if user_query:
     st.session_state.messages.append(HumanMessage(content=user_query))
     st.chat_message("user").write(user_query)
 
+    # 🌟 FIX 1: Always define messages_for_llm right away so it always exists
     messages_for_llm = st.session_state.messages.copy()
 
     try:
@@ -167,37 +168,36 @@ if user_query:
                 "CRITICAL INSTRUCTIONS:\n"
                 "1. NEVER say you cannot read or access files. You have the file text right below.\n"
                 "2. If the user asks about the documents, summarize or extract from the Context.\n"
-                "3. If the answer is not in the Context, say 'I cannot find that in the documents.'\n\n"
+                "3. If the answer is not in the Context, say 'I cannot find that in the documents.\n"
+                "4. Pay close attention to numbering, indices, and specific counts within lists.'\n\n"
                 f"Context from uploaded files:\n{context}"
             )
             messages_for_llm[0] = SystemMessage(content=rag_system_prompt)
             
     except Exception as e:
+        # If DB fails, we log it, but messages_for_llm still exists as a normal conversation
         st.error(f"Database search failed: {e}")
 
     # Generate assistant response using streaming
-  # Generate assistant response using streaming
-with st.chat_message("assistant"):
-    response_placeholder = st.empty()
-    full_response = ""
+    with st.chat_message("assistant"):
+        response_placeholder = st.empty()
+        full_response = ""
 
-    try:
-        # Unified streaming extraction
-        for chunk in llm.stream(messages_for_llm):
-            # parse chunk content if it comes as a list or a string
-            if isinstance(chunk.content, str):
-                chunk_text = chunk.content
-            elif isinstance(chunk.content, list):
-                # Extract text blocks if it's a list of dictionaries
-                chunk_text = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in chunk.content])
-            else:
-                chunk_text = str(chunk.content)
+        try:
+            # 🌟 FIX 2: Safe streaming parsing logic handled here
+            for chunk in llm.stream(messages_for_llm):
+                if isinstance(chunk.content, str):
+                    chunk_text = chunk.content
+                elif isinstance(chunk.content, list):
+                    chunk_text = "".join([c.get("text", "") if isinstance(c, dict) else str(c) for c in chunk.content])
+                else:
+                    chunk_text = str(chunk.content)
 
-            full_response += chunk_text
-            response_placeholder.markdown(full_response + "▌")
-        
-        response_placeholder.markdown(full_response)
-        st.session_state.messages.append(AIMessage(content=full_response))
-        
-    except Exception as e:
-        st.error(f"An error occurred: {e}")
+                full_response += chunk_text
+                response_placeholder.markdown(full_response + "▌")
+            
+            response_placeholder.markdown(full_response)
+            st.session_state.messages.append(AIMessage(content=full_response))
+            
+        except Exception as e:
+            st.error(f"An error occurred during LLM generation: {e}")
