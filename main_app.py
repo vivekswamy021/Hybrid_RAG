@@ -96,7 +96,7 @@ with st.sidebar:
                         loader = PyMuPDFLoader(tmp_file_path)
                         docs = loader.load()
 
-                        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+                        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=300)
                         splits = text_splitter.split_documents(docs)
 
                         # Generate a list of unique strings for the ID column 
@@ -151,7 +151,7 @@ if user_query:
             {
                 "query_embedding": query_vector,  # Semantic Search Vector
                 "query_text": user_query,         # Keyword Search Text
-                "match_count": 10
+                "match_count": 15
             } 
         ).execute()
         
