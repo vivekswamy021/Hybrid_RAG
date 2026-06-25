@@ -178,5 +178,4 @@ if user_query:
             response_placeholder.markdown(full_response)
             st.session_state.messages.append(AIMessage(content=full_response))
         except Exception as e:
-
-            st.error(f"An error occurred: {e}")  e
+            st.error(f"An error occurred: {e}")
