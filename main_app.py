@@ -10,6 +10,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import SupabaseVectorStore
 from supabase.client import Client, create_client
 from flashrank import Ranker, RerankRequest
+
 # -------------------------------
 # 1️⃣ Set up Environment & Page
 # -------------------------------
@@ -26,7 +27,7 @@ if not gemini_api_key or not supabase_url or not supabase_key:
 # 2️⃣ Initialize Models & DB Client
 try:
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash", 
+        model="gemini-2.0-flash", 
         google_api_key=gemini_api_key,
         streaming=True
     )
