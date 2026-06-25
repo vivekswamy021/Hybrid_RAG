@@ -9,7 +9,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import SupabaseVectorStore
 from supabase.client import Client, create_client
-
+from flashrank import Ranker, RerankRequest
 # -------------------------------
 # 1️⃣ Set up Environment & Page
 # -------------------------------
@@ -108,6 +108,12 @@ for msg in st.session_state.messages:
     elif isinstance(msg, AIMessage):
         st.chat_message("assistant").write(msg.content)
 
+# --- Initialize Reranker (Cache it to prevent reloading on every run) ---
+@st.cache_resource
+def get_reranker():
+    # Downloads a small, fast model (ms-marco-MiniLM-L-6-v2) on first run
+    return Ranker()
+
 # -------------------------------
 # 6️⃣ User Input & Hybrid RAG Logic
 # -------------------------------
@@ -115,10 +121,10 @@ user_query = st.chat_input("Type your message...")
 if user_query:
     st.chat_message("user").write(user_query)
     
-    # Step A: Condense chat history into a standalone search query if history exists
+    # Step A: Condense chat history into a standalone search query
     search_query = user_query
     if len(st.session_state.messages) > 0:
-        with st.spinner("searching matching context..."):    #  ---- passing the chat history and the latest user message to Gemini to rephrase it into a standalone question
+        with st.spinner("Formulating standalone search query..."):
             condense_prompt = (
                 "Given the following conversation and a follow-up question, rephrase the follow-up question "
                 "to be a standalone question, in its original language, containing all necessary context.\n\n"
@@ -126,34 +132,58 @@ if user_query:
                 f"Follow-up Input: {user_query}\n\n"
                 "Standalone Question:"
             )
-            # Quick sync invoke to generate search query
             search_query = llm.invoke([HumanMessage(content=condense_prompt)]).content
 
-    # Step B: Vector Retrieval
+    # Step B: Vector & Keyword Retrieval (Cast a wider net for reranking)
     context = ""
     try:
         embeddings = get_embeddings()
         query_vector = embeddings.embed_query(search_query)
         
+        # 1. Fetch a larger initial candidate pool (e.g., 25 chunks)
         response = supabase.rpc(
             "match_documents", 
             {
                 "query_embedding": query_vector,  
                 "query_text": search_query,         
-                "match_count": 8  # Reduced slightly to ensure we don't blow up context windows
+                "match_count": 25  # Wider net for the reranker to sift through
             } 
         ).execute()
         
         if response.data:
-            st.info(f"Database found {len(response.data)} matching context via Hybrid Search.")
-            context = "\n\n".join([doc.get("content", doc.get("text", "")) for doc in response.data])
+            st.info(f"Database retrieved {len(response.data)} initial candidates. Reranking...")
+            
+            # 2. Format database results for FlashRank
+            # FlashRank expects a list of dicts with "id", "text", and optional "meta"
+            pass_passages = [
+                {
+                    "id": idx,
+                    "text": doc.get("content", doc.get("text", "")),
+                    "meta": {"source": doc.get("metadata", {})}
+                }
+                for idx, doc in enumerate(response.data)
+            ]
+            
+            # 3. Perform Reranking
+            ranker = get_reranker()
+            rerank_request = RerankRequest(query=search_query, passages=pass_passages)
+            reranked_results = ranker.rerank(rerank_request)
+            
+            # 4. Take only the Top 5 highest-scoring chunks post-rerank
+            top_n = reranked_results[:5]
+            
+            # Optional: Debug log to show how scores look
+            # st.write([{"score": r["score"], "text": r["text"][:50]} for r in top_n])
+            
+            context = "\n\n".join([r["text"] for r in top_n])
+            st.success(f"Successfully reranked down to the top 5 most relevant blocks.")
+            
     except Exception as e:
-        st.error(f"Database search failed: {e}")
+        st.error(f"Database search or Reranking failed: {e}")
         
     # Step C: Construct clean LLM Input History
     messages_for_llm = []
     
-    # Base instructions
     system_instruction = (
         "You are an expert document analysis assistant. Answer the user's question accurately using only "
         "the provided Context below. If the answer cannot be derived from the context, explicitly state "
@@ -161,11 +191,7 @@ if user_query:
         f"Context:\n{context if context else 'No relevant context found.'}"
     )
     messages_for_llm.append(SystemMessage(content=system_instruction))
-    
-    # Append past chat history (excluding the current query)
     messages_for_llm.extend(st.session_state.messages)
-    
-    # Append the true user request
     messages_for_llm.append(HumanMessage(content=user_query))
         
     # Step D: Generate assistant response using streaming
@@ -178,7 +204,6 @@ if user_query:
                 response_placeholder.markdown(full_response + "▌")
             response_placeholder.markdown(full_response)
             
-            # Commit to session state only after successful generation
             st.session_state.messages.append(HumanMessage(content=user_query))
             st.session_state.messages.append(AIMessage(content=full_response))
         except Exception as e:
