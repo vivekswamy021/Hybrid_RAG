@@ -138,7 +138,7 @@ if user_query:
             {
                 "query_embedding": query_vector,  # Semantic Search Vector
                 "query_text": user_query,         # Keyword Search Text
-                "match_count": 5
+                "match_count": 10
             } 
         ).execute()
         st.info(f"Database found {len(response.data)} matching paragraphs via Hybrid Search.")
