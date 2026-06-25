@@ -3,16 +3,12 @@ langchain-google-genai
 langchain-core
 langchain-community
 langchain-huggingface
-supabase
 pymupdf
 
 # --- Vector Database & Embeddings ---
 supabase
 sentence-transformers
-torch
-torchvision
 flashrank
-
 
 # --- Vector Database & Embeddings ---
 faiss-cpu
