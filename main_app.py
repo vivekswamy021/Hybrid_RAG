@@ -147,21 +147,14 @@ if user_query:
         if response.data:
             context = "\n\n".join([doc["content"] for doc in response.data])
             rag_system_prompt = (
-
                 "You are an expert document analysis assistant. The user has uploaded files, and the text "
-
                 "extracted from them is provided below in the Context. \n"
-
                 "CRITICAL INSTRUCTIONS:\n"
-
                 "1. NEVER say you cannot read or access files. You have the file text right below.\n"
-
                 "2. If the user asks about the documents, summarize or extract from the Context.\n"
-
                 "3. If the answer is not in the Context, say 'I cannot find that in the documents.'\n\n"
-
-                f"Context from uploaded files:\n{context}"
-            )
+                f"Context from uploaded files:\n{context}" )
+            
             messages_for_llm[0] = SystemMessage(content=rag_system_prompt)
     except Exception as e:
         st.error(f"Database search failed: {e}")
