@@ -145,7 +145,7 @@ if user_query:
         ).execute()
         
         if response.data:
-            st.info(f"Database found {len(response.data)} matching context blocks.")
+            st.info(f"Database found {len(response.data)} matching context via Hybrid Search.")
             context = "\n\n".join([doc.get("content", doc.get("text", "")) for doc in response.data])
     except Exception as e:
         st.error(f"Database search failed: {e}")
