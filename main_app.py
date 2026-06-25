@@ -118,7 +118,7 @@ if user_query:
     # Step A: Condense chat history into a standalone search query if history exists
     search_query = user_query
     if len(st.session_state.messages) > 0:
-        with st.spinner("standalone search query..."):    #  ---- passing the chat history and the latest user message to Gemini to rephrase it into a standalone question
+        with st.spinner("searching matching context..."):    #  ---- passing the chat history and the latest user message to Gemini to rephrase it into a standalone question
             condense_prompt = (
                 "Given the following conversation and a follow-up question, rephrase the follow-up question "
                 "to be a standalone question, in its original language, containing all necessary context.\n\n"
