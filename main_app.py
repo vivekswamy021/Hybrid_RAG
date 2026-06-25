@@ -1,5 +1,5 @@
 import streamlit as st
-fimport streamlit as st
+import streamlit as st
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenAIEmbeddings
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 import os
