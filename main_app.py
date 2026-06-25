@@ -140,7 +140,7 @@ if user_query:
             {
                 "query_embedding": query_vector,  
                 "query_text": search_query,         
-                "match_count": 5  # Reduced slightly to ensure we don't blow up context windows
+                "match_count": 8  # Reduced slightly to ensure we don't blow up context windows
             } 
         ).execute()
         
