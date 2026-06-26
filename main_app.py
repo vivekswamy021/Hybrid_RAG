@@ -27,7 +27,7 @@ if not gemini_api_key or not supabase_url or not supabase_key:
 # 2️⃣ Initialize Models & DB Client
 try:
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash-lite",          # "gemini-2.0-flash", 
+        model="gemini-3.1-flash-lite",          # "gemini-2.0-flash", 
         google_api_key=gemini_api_key,
         streaming=True
     )
