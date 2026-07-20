@@ -205,4 +205,4 @@ if user_query:
             st.session_state.messages.append(HumanMessage(content=user_query))
             st.session_state.messages.append(AIMessage(content=full_response))
         except Exception as e:
-            st.error(f"An error occurred: {e}")   in  this when user give query it misses some info from uploaded pdf why
+            st.error(f"An error occurred: {e}")  
