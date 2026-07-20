@@ -22,8 +22,8 @@ supabase_url = st.secrets.get("SUPABASE_URL", os.getenv("SUPABASE_URL"))
 supabase_key = st.secrets.get("SUPABASE_KEY", os.getenv("SUPABASE_KEY"))
 
 if not groq_api_key or not supabase_url or not supabase_key:
-    st.error("🚨 Missing API Keys. Please check your GROQ_API_KEY, SUPABASE_URL, and SUPABASE_KEY.")
-    st.stop()
+   st.error("🚨 Missing API Keys. Please check your GROQ_API_KEY, SUPABASE_URL, and SUPABASE_KEY.")
+   st.stop()
 
 # 2️⃣ Initialize Models & DB Client
 try:
