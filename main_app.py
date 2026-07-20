@@ -1,16 +1,16 @@
 import os
 import tempfile
-import uuid
+import uuid                                                     # Used to create unique IDs for each chunk inserted into Postgres
 
-import streamlit as st
-from flashrank import Ranker, RerankRequest
-from langchain_community.document_loaders import PyMuPDFLoader
-from langchain_community.vectorstores import SupabaseVectorStore
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_groq import ChatGroq
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from supabase.client import Client, create_client
+import streamlit as st  # UI Framework for rendering the web dashboard
+from flashrank import Ranker, RerankRequest                                  # Cross-Encoder Reranker for scoring relevance
+from langchain_community.document_loaders import PyMuPDFLoader            # PDF Reader/Text Extractor
+from langchain_community.vectorstores import SupabaseVectorStore              # Vector DB Abstraction for LangChain
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage       # Structured Chat Roles
+from langchain_groq import ChatGroq           # Groq Inference Engine wrapper for Llama 3.3
+from langchain_huggingface import HuggingFaceEmbeddings              # Local Transformer Embeddings Generator
+from langchain_text_splitters import RecursiveCharacterTextSplitter      # Smart Text Chunking Utility
+from supabase.client import Client, create_client                     # Direct Supabase Client for RPC calls
 
 # -------------------------------
 # 1️⃣ Set up Environment & Page
@@ -142,25 +142,26 @@ if user_query:
             search_query = llm.invoke([HumanMessage(content=condense_prompt)]).content
 
     # Step B: True Hybrid Retrieval (Vector + Keyword via RRF)
+   # Step B: Retrieval Engine (HuggingFace + Supabase True Hybrid RAG + FlashRank)
     context = ""
     try:
         embeddings = get_embeddings()
         query_vector = embeddings.embed_query(search_query)
         
-        # Call custom hybrid_search RPC in Supabase
+        # 1. Call updated match_documents RPC with RRF Hybrid logic
         response = supabase.rpc(
-            "hybrid_search", 
+            "match_documents", 
             {
-                "query_text": search_query,         # Keyword match query
-                "query_embedding": query_vector,   # Dense vector query
-                "match_count": 40                   # Larger candidate pool for RRF
+                "query_embedding": query_vector,
+                "query_text": search_query,
+                "match_count": 40
             } 
         ).execute()
         
         if response.data:
-            st.info(f"Database retrieved {len(response.data)} candidates using RRF Hybrid Search. Reranking...")
+            st.info(f"Database retrieved {len(response.data)} candidates using True Hybrid Search (RRF). Reranking...")
             
-            # Prepare passages for FlashRank Cross-Encoder
+            # 2. Format passages for FlashRank
             pass_passages = [
                 {
                     "id": idx,
@@ -170,47 +171,15 @@ if user_query:
                 for idx, doc in enumerate(response.data)
             ]
             
-            # FlashRank Reranking
+            # 3. FlashRank Cross-Encoder Reranking
             ranker = get_reranker()
             rerank_request = RerankRequest(query=search_query, passages=pass_passages)
             reranked_results = ranker.rerank(rerank_request)
             
-            # Select top 8 post-reranking chunks
+            # 4. Select top 8 post-rerank blocks
             top_n = reranked_results[:8]
             context = "\n\n".join([r["text"] for r in top_n])
-            st.success(f"Successfully reranked down to top 8 context blocks.")
+            st.success("Successfully reranked down to top 8 context blocks.")
             
     except Exception as e:
         st.error(f"Hybrid Search or Reranking failed: {e}")
-        
-    # Step C: Construct clean LLM Input History
-    messages_for_llm = []
-    
-    system_instruction = (
-        "You are an expert document analysis assistant. Answer the user's question accurately using only "
-        "the provided Context below. If the answer cannot be derived from the context, explicitly state "
-        "'I cannot find that in the documents.'\n\n"
-        f"Context:\n{context if context else 'No relevant context found.'}"
-    )
-    
-    # Truncate history to avoid context overflow/dilution
-    recent_messages = st.session_state.messages[-6:]
-    
-    messages_for_llm.append(SystemMessage(content=system_instruction))
-    messages_for_llm.extend(recent_messages)
-    messages_for_llm.append(HumanMessage(content=user_query))
-        
-    # Step D: Response Generation
-    with st.chat_message("assistant"):
-        response_placeholder = st.empty()
-        full_response = ""
-        try:
-            for chunk in llm.stream(messages_for_llm):
-                full_response += chunk.content
-                response_placeholder.markdown(full_response + "▌")
-            response_placeholder.markdown(full_response)
-            
-            st.session_state.messages.append(HumanMessage(content=user_query))
-            st.session_state.messages.append(AIMessage(content=full_response))
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
