@@ -5,7 +5,8 @@ langchain-core
 langchain-community
 langchain-huggingface
 pymupdf
-
+torch
+torchvision
 # --- Vector Database & Embeddings ---
 supabase
 sentence-transformers
