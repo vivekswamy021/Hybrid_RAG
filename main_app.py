@@ -61,7 +61,7 @@ if "messages" not in st.session_state:
 if "processed_files" not in st.session_state:
     st.session_state.processed_files = set()
 
-st.title("⚡ Groq & Supabase True Hybrid RAG")
+st.title("⚡ Groq & Supabase Hybrid RAG")
 st.caption("Documents uploaded here are saved permanently with Hybrid Indexing (BM25 Full-Text + Vector RRF).")
 
 # -------------------------------
@@ -124,7 +124,7 @@ def get_reranker():
 # -------------------------------
 # 6️⃣ User Input & True Hybrid RAG Logic
 # -------------------------------
-user_query = st.chat_input("Type your message...")
+user_query = st.chat_input("Start Quering...")
 if user_query:
     st.chat_message("user").write(user_query)
     
