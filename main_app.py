@@ -142,26 +142,25 @@ if user_query:
             search_query = llm.invoke([HumanMessage(content=condense_prompt)]).content
 
     # Step B: True Hybrid Retrieval (Vector + Keyword via RRF)
-   # Step B: Retrieval Engine (HuggingFace + Supabase True Hybrid RAG + FlashRank)
     context = ""
     try:
         embeddings = get_embeddings()
         query_vector = embeddings.embed_query(search_query)
         
-        # 1. Call updated match_documents RPC with RRF Hybrid logic
+        # Call custom hybrid_search RPC in Supabase
         response = supabase.rpc(
-            "match_documents", 
+            "hybrid_search", 
             {
-                "query_embedding": query_vector,
-                "query_text": search_query,
-                "match_count": 40
+                "query_text": search_query,         # Keyword match query
+                "query_embedding": query_vector,   # Dense vector query
+                "match_count": 40                   # Larger candidate pool for RRF
             } 
         ).execute()
         
         if response.data:
-            st.info(f"Database retrieved {len(response.data)} candidates using True Hybrid Search (RRF). Reranking...")
+            st.info(f"Database retrieved {len(response.data)} candidates using RRF Hybrid Search. Reranking...")
             
-            # 2. Format passages for FlashRank
+            # Prepare passages for FlashRank Cross-Encoder
             pass_passages = [
                 {
                     "id": idx,
@@ -171,15 +170,47 @@ if user_query:
                 for idx, doc in enumerate(response.data)
             ]
             
-            # 3. FlashRank Cross-Encoder Reranking
+            # FlashRank Reranking
             ranker = get_reranker()
             rerank_request = RerankRequest(query=search_query, passages=pass_passages)
             reranked_results = ranker.rerank(rerank_request)
             
-            # 4. Select top 8 post-rerank blocks
+            # Select top 8 post-reranking chunks
             top_n = reranked_results[:8]
             context = "\n\n".join([r["text"] for r in top_n])
-            st.success("Successfully reranked down to top 8 context blocks.")
+            st.success(f"Successfully reranked down to top 8 context blocks.")
             
     except Exception as e:
         st.error(f"Hybrid Search or Reranking failed: {e}")
+        
+    # Step C: Construct clean LLM Input History
+    messages_for_llm = []
+    
+    system_instruction = (
+        "You are an expert document analysis assistant. Answer the user's question accurately using only "
+        "the provided Context below. If the answer cannot be derived from the context, explicitly state "
+        "'I cannot find that in the documents.'\n\n"
+        f"Context:\n{context if context else 'No relevant context found.'}"
+    )
+    
+    # Truncate history to avoid context overflow/dilution
+    recent_messages = st.session_state.messages[-6:]
+    
+    messages_for_llm.append(SystemMessage(content=system_instruction))
+    messages_for_llm.extend(recent_messages)
+    messages_for_llm.append(HumanMessage(content=user_query))
+        
+    # Step D: Response Generation
+    with st.chat_message("assistant"):
+        response_placeholder = st.empty()
+        full_response = ""
+        try:
+            for chunk in llm.stream(messages_for_llm):
+                full_response += chunk.content
+                response_placeholder.markdown(full_response + "▌")
+            response_placeholder.markdown(full_response)
+            
+            st.session_state.messages.append(HumanMessage(content=user_query))
+            st.session_state.messages.append(AIMessage(content=full_response))
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
