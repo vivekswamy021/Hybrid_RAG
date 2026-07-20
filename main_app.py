@@ -158,7 +158,7 @@ if user_query:
         ).execute()
         
         if response.data:
-            st.info(f"Database retrieved {len(response.data)} candidates using RRF Hybrid Search. Reranking...")
+            st.info(f"Database retrieved {len(response.data)} matching counts using RRF Hybrid Search. Reranking...")
             
             # Format database results for FlashRank
             pass_passages = [
@@ -176,10 +176,10 @@ if user_query:
             reranked_results = ranker.rerank(rerank_request)
             
             # Take top 8 post-rerank blocks
-            top_n = reranked_results[:8]
+            top_n = reranked_results[:10]
             
             context = "\n\n".join([r["text"] for r in top_n])
-            st.success(f"Successfully reranked down to top 8 most relevant blocks.")
+            st.success(f"Successfully reranked down to top 10 most relevant data.")
             
     except Exception as e:
         st.error(f"True Hybrid Search or Reranking failed: {e}")
