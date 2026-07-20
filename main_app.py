@@ -148,7 +148,7 @@ if user_query:
             {
                 "query_embedding": query_vector,  
                 "query_text": search_query,         
-                "match_count": 25 
+                "match_count": 40
             } 
         ).execute()
         
@@ -171,10 +171,10 @@ if user_query:
             reranked_results = ranker.rerank(rerank_request)
             
             # 4. Take only top 5 post-rerank
-            top_n = reranked_results[:5]
+            top_n = reranked_results[:10]
             
             context = "\n\n".join([r["text"] for r in top_n])
-            st.success(f"Successfully reranked down to top 5 most relevant blocks.")
+            st.success(f"Successfully reranked down to top 10 most relevant blocks.")
             
     except Exception as e:
         st.error(f"Database search or Reranking failed: {e}")
