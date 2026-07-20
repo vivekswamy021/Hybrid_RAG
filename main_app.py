@@ -85,7 +85,7 @@ with st.sidebar:
                     try:
                         loader = PyMuPDFLoader(tmp_file_path)
                         docs = loader.load()
-                        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+                        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=300)
                         splits = text_splitter.split_documents(docs)
                         
                         chunk_ids = [str(uuid.uuid4()) for _ in range(len(splits))]
