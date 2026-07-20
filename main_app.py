@@ -1,39 +1,41 @@
-import streamlit as st
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 import os
 import tempfile
-import uuid  
-from langchain_community.document_loaders import PyMuPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import SupabaseVectorStore
-from supabase.client import Client, create_client
+import uuid    # used to create unique ids for each chunks
+
+import streamlit as st
 from flashrank import Ranker, RerankRequest
+from langchain_community.document_loaders import PyMuPDFLoader
+from langchain_community.vectorstores import SupabaseVectorStore
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_groq import ChatGroq  # Changed from Gemini to Groq
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from supabase.client import Client, create_client
 
 # -------------------------------
 # 1️⃣ Set up Environment & Page
 # -------------------------------
-st.set_page_config(page_title="Gemini + Supabase RAG", page_icon="🤖", layout="centered")
+st.set_page_config(page_title="Groq + Supabase RAG", page_icon="⚡", layout="centered")
 
-gemini_api_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
+groq_api_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
 supabase_url = st.secrets.get("SUPABASE_URL", os.getenv("SUPABASE_URL"))
 supabase_key = st.secrets.get("SUPABASE_KEY", os.getenv("SUPABASE_KEY"))
 
-if not gemini_api_key or not supabase_url or not supabase_key:
-    st.error("🚨 Missing API Keys. Please check your GEMINI_API_KEY, SUPABASE_URL, and SUPABASE_KEY.")
+if not groq_api_key or not supabase_url or not supabase_key:
+    st.error("🚨 Missing API Keys. Please check your GROQ_API_KEY, SUPABASE_URL, and SUPABASE_KEY.")
     st.stop()
-    
+
 # 2️⃣ Initialize Models & DB Client
 try:
-    llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash", 
-    google_api_key=gemini_api_key,
-    temperature=0.2,
-    streaming=True
-)
+    # Swapped Gemini for Groq (Using Llama 3.3 70B Versatile)
+    llm = ChatGroq(
+        model_name="llama-3.3-70b-versatile",
+        groq_api_key=groq_api_key,
+        temperature=0.2,
+        streaming=True
+    )
 except Exception as e:
-    st.error(f"🚨 GEMINI ERROR: {e}")
+    st.error(f"🚨 GROQ ERROR: {e}")
     st.stop()
 
 try:
@@ -59,8 +61,8 @@ if "messages" not in st.session_state:
 
 if "processed_files" not in st.session_state:
     st.session_state.processed_files = set()
-    
-st.title("🤖 Gemini & Supabase Hybrid RAG")
+
+st.title("⚡ Groq & Supabase Hybrid RAG")
 st.caption("Documents uploaded here are saved permanently to your Supabase Vector Database.")
 
 # -------------------------------
@@ -77,7 +79,6 @@ with st.sidebar:
         for uploaded_file in uploaded_files:
             if uploaded_file.name not in st.session_state.processed_files:
                 with st.spinner(f"Indexing {uploaded_file.name} to Supabase..."):
-                    # Fix: Write and close file to avoid WinError/Access sharing bugs
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                         tmp_file.write(uploaded_file.getvalue())
                         tmp_file_path = tmp_file.name
@@ -110,10 +111,9 @@ for msg in st.session_state.messages:
     elif isinstance(msg, AIMessage):
         st.chat_message("assistant").write(msg.content)
 
-# --- Initialize Reranker (Cache it to prevent reloading on every run) ---
+# Initialize Reranker
 @st.cache_resource
 def get_reranker():
-    # Downloads a small, fast model (ms-marco-MiniLM-L-6-v2) on first run
     return Ranker()
 
 # -------------------------------
@@ -142,13 +142,13 @@ if user_query:
         embeddings = get_embeddings()
         query_vector = embeddings.embed_query(search_query)
         
-        # 1. Fetch a larger initial candidate pool (e.g., 25 chunks)
+        # 1. Fetch a larger initial candidate pool
         response = supabase.rpc(
             "match_documents", 
             {
                 "query_embedding": query_vector,  
                 "query_text": search_query,         
-                "match_count": 25  # Wider net for the reranker to sift through
+                "match_count": 25 
             } 
         ).execute()
         
@@ -156,7 +156,6 @@ if user_query:
             st.info(f"Database retrieved {len(response.data)} initial candidates. Reranking...")
             
             # 2. Format database results for FlashRank
-            # FlashRank expects a list of dicts with "id", "text", and optional "meta"
             pass_passages = [
                 {
                     "id": idx,
@@ -171,14 +170,11 @@ if user_query:
             rerank_request = RerankRequest(query=search_query, passages=pass_passages)
             reranked_results = ranker.rerank(rerank_request)
             
-            # 4. Take only the Top 5 highest-scoring chunks post-rerank
+            # 4. Take only top 5 post-rerank
             top_n = reranked_results[:5]
             
-            # Optional: Debug log to show how scores look
-            # st.write([{"score": r["score"], "text": r["text"][:50]} for r in top_n])
-            
             context = "\n\n".join([r["text"] for r in top_n])
-            st.success(f"Successfully reranked down to the top 5 most relevant blocks.")
+            st.success(f"Successfully reranked down to top 5 most relevant blocks.")
             
     except Exception as e:
         st.error(f"Database search or Reranking failed: {e}")
