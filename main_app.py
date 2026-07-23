@@ -232,7 +232,8 @@ if user_query:
     "stated in the Context below. Do not use outside knowledge or make assumptions. "
     "If the answer cannot be directly derived from the context, respond strictly with: "
     "'I cannot find that in the documents.'\n\n"
-    f"Context:\n{context if context else 'No context found.'}")
+    f"Context:\n{context if context else 'No context found.'}"
+   )
     
     recent_messages = st.session_state.messages[-6:]
     messages_for_llm = [SystemMessage(content=system_instruction)]
