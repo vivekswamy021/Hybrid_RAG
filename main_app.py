@@ -63,28 +63,37 @@ def get_reranker():
     return Ranker()
 
 # -------------------------------
-# ⚖️ LLM-as-a-Judge Evaluation Logic
+# ⚖️ Comprehensive LLM-as-a-Judge Evaluation Logic
 # -------------------------------
-def evaluate_response_faithfulness(query: str, context: str, response: str) -> dict:
-    """Evaluates whether the generated response is strictly grounded in the retrieved context."""
+def evaluate_rag_response(query: str, context: str, response: str) -> dict:
+    """Detailed LLM Judge evaluating Faithfulness, Relevance, Completeness, and Hallucination."""
     judge_prompt = f"""
-You are an unbiased, strict AI evaluator (LLM-as-a-Judge).
-Your job is to assess if the Assistant's Answer is fully grounded in and supported by the provided Context.
+You are an expert AI evaluator judging a Retrieval-Augmented Generation (RAG) system.
+Assess the generated Assistant Answer strictly using the provided User Query and Context.
 
 User Query: {query}
 Context: {context}
 Assistant Answer: {response}
 
 Evaluation Criteria:
-1. "PASS": The answer directly addresses the query and uses ONLY information present in the Context.
-2. "FAIL": The answer introduces external facts, hallucinates details, or contradicts the Context.
-3. "N/A": The context was missing/empty or the Assistant correctly stated that it couldn't find the answer in the documents.
+1. faithfulness_score (0.0 to 1.0): Is every claim in the answer directly backed by the Context? (1.0 = Fully grounded, 0.0 = Totally ungrounded).
+2. relevance_score (0.0 to 1.0): Does the answer directly address what the user asked? (1.0 = Highly relevant, 0.0 = Irrelevant).
+3. completeness_score (0.0 to 1.0): Does the answer cover all key details provided in the context needed to answer the query? (1.0 = Complete, 0.0 = Missing crucial information).
+4. overall_score (0.0 to 1.0): Weighted overall quality score reflecting accuracy and utility.
+5. hallucination (true/false): Set to true IF the answer contains claims, facts, or assumptions NOT supported by the Context. Otherwise, false.
 
-Respond ONLY with a valid JSON object in this exact format (no markdown fences, no raw text outside JSON):
-{{"score": "PASS", "confidence": 0.95, "reasoning": "The response is completely backed by the retrieved context."}}
+Respond ONLY with a valid JSON object matching this exact structure:
+{{
+  "faithfulness_score": 0.95,
+  "relevance_score": 0.90,
+  "completeness_score": 0.85,
+  "overall_score": 0.90,
+  "hallucination": false,
+  "reasoning": "Clear 1-2 sentence explanation of the evaluation scores."
+}}
 """
     try:
-        # Temperature=0.0 ensures deterministic grading
+        # Deterministic grading using temp=0.0
         eval_llm = ChatGroq(
             model_name="llama-3.3-70b-versatile",
             groq_api_key=groq_api_key,
@@ -92,11 +101,18 @@ Respond ONLY with a valid JSON object in this exact format (no markdown fences, 
         )
         raw_result = eval_llm.invoke([HumanMessage(content=judge_prompt)]).content
         
-        # Clean possible markdown formatting wrapper
+        # Parse JSON
         clean_json = raw_result.strip().replace("```json", "").replace("```", "").strip()
         return json.loads(clean_json)
     except Exception as e:
-        return {"score": "ERROR", "confidence": 0.0, "reasoning": f"Judge processing error: {str(e)}"}
+        return {
+            "faithfulness_score": 0.0,
+            "relevance_score": 0.0,
+            "completeness_score": 0.0,
+            "overall_score": 0.0,
+            "hallucination": True,
+            "reasoning": f"Judge failed to parse response: {str(e)}"
+        }
 
 # -------------------------------
 # 3️⃣ Chat History Management
@@ -245,39 +261,51 @@ if user_query:
         response_placeholder = st.empty()
         full_response = ""
         try:
-            # Stream the main answer to the UI
+            # Stream response to user UI
             for chunk in llm.stream(messages_for_llm):
                 full_response += chunk.content
                 response_placeholder.markdown(full_response + "▌")
             response_placeholder.markdown(full_response)
             
-            # Append interaction to chat history
+            # Save interaction
             st.session_state.messages.append(HumanMessage(content=user_query))
             st.session_state.messages.append(AIMessage(content=full_response))
             
             # -------------------------------
-            # ⚖️ Execute LLM-as-a-Judge Step
+            # ⚖️ Execute Detailed Judge Evaluation
             # -------------------------------
-            with st.status("⚖️ Running LLM Judge evaluation...", expanded=False) as status:
-                evaluation = evaluate_response_faithfulness(
+            with st.status("⚖️ Running Multi-Metric LLM Evaluation...", expanded=True) as status:
+                eval_metrics = evaluate_rag_response(
                     query=user_query,
                     context=context,
                     response=full_response
                 )
                 
-                score = evaluation.get("score", "UNKNOWN")
-                reasoning = evaluation.get("reasoning", "No detailed reasoning provided.")
-                confidence = evaluation.get("confidence", 0.0)
+                faithfulness = eval_metrics.get("faithfulness_score", 0.0)
+                relevance = eval_metrics.get("relevance_score", 0.0)
+                completeness = eval_metrics.get("completeness_score", 0.0)
+                overall = eval_metrics.get("overall_score", 0.0)
+                is_hallucination = eval_metrics.get("hallucination", False)
+                reasoning = eval_metrics.get("reasoning", "No evaluation details available.")
                 
-                if score == "PASS":
-                    status.update(label=f"✅ LLM Judge: Faithfulness Check Passed ({confidence*100:.0f}% confidence)", state="complete")
-                    st.success(f"**Verdict:** {score}\n\n**Reasoning:** {reasoning}")
-                elif score == "FAIL":
-                    status.update(label="🚨 LLM Judge: Grounding Issue / Hallucination Warning", state="error")
-                    st.warning(f"**Verdict:** {score}\n\n**Reasoning:** {reasoning}")
+                # Dynamic header based on hallucination state
+                if is_hallucination:
+                    status.update(label="🚨 LLM Judge: Grounding Issue / Hallucination Warning Detected", state="error")
                 else:
-                    status.update(label=f"ℹ️ LLM Judge Status: {score}", state="complete")
-                    st.info(f"**Verdict:** {score}\n\n**Reasoning:** {reasoning}")
+                    status.update(label="✅ LLM Judge: Grounded & Validated Answer", state="complete")
+                
+                # Visual Metric Dashboard Display
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Faithfulness", f"{faithfulness:.2f}")
+                col2.metric("Relevance", f"{relevance:.2f}")
+                col3.metric("Completeness", f"{completeness:.2f}")
+                col4.metric("Overall Score", f"{overall:.2f}")
+                
+                st.markdown("---")
+                if is_hallucination:
+                    st.error(f"**Hallucination Status:** `TRUE` ⚠️\n\n**Judge Analysis:** {reasoning}")
+                else:
+                    st.success(f"**Hallucination Status:** `FALSE` ✅\n\n**Judge Analysis:** {reasoning}")
 
         except Exception as e:
             st.error(f"An error occurred during response generation: {e}")
