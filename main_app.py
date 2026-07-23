@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import uuid  # Used to create unique IDs for each chunk inserted into Postgres
@@ -25,7 +26,9 @@ if not groq_api_key or not supabase_url or not supabase_key:
     st.error("🚨 Missing API Keys. Please check your GROQ_API_KEY, SUPABASE_URL, and SUPABASE_KEY.")
     st.stop()
 
+# -------------------------------
 # 2️⃣ Initialize Models & DB Client
+# -------------------------------
 try:
     llm = ChatGroq(
         model_name="llama-3.3-70b-versatile",
@@ -54,7 +57,50 @@ vector_store = SupabaseVectorStore(
     query_name="match_documents"
 )
 
+# Initialize FlashRank Reranker
+@st.cache_resource
+def get_reranker():
+    return Ranker()
+
+# -------------------------------
+# ⚖️ LLM-as-a-Judge Evaluation Logic
+# -------------------------------
+def evaluate_response_faithfulness(query: str, context: str, response: str) -> dict:
+    """Evaluates whether the generated response is strictly grounded in the retrieved context."""
+    judge_prompt = f"""
+You are an unbiased, strict AI evaluator (LLM-as-a-Judge).
+Your job is to assess if the Assistant's Answer is fully grounded in and supported by the provided Context.
+
+User Query: {query}
+Context: {context}
+Assistant Answer: {response}
+
+Evaluation Criteria:
+1. "PASS": The answer directly addresses the query and uses ONLY information present in the Context.
+2. "FAIL": The answer introduces external facts, hallucinates details, or contradicts the Context.
+3. "N/A": The context was missing/empty or the Assistant correctly stated that it couldn't find the answer in the documents.
+
+Respond ONLY with a valid JSON object in this exact format (no markdown fences, no raw text outside JSON):
+{{"score": "PASS", "confidence": 0.95, "reasoning": "The response is completely backed by the retrieved context."}}
+"""
+    try:
+        # Temperature=0.0 ensures deterministic grading
+        eval_llm = ChatGroq(
+            model_name="llama-3.3-70b-versatile",
+            groq_api_key=groq_api_key,
+            temperature=0.0
+        )
+        raw_result = eval_llm.invoke([HumanMessage(content=judge_prompt)]).content
+        
+        # Clean possible markdown formatting wrapper
+        clean_json = raw_result.strip().replace("```json", "").replace("```", "").strip()
+        return json.loads(clean_json)
+    except Exception as e:
+        return {"score": "ERROR", "confidence": 0.0, "reasoning": f"Judge processing error: {str(e)}"}
+
+# -------------------------------
 # 3️⃣ Chat History Management
+# -------------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -85,7 +131,7 @@ with st.sidebar:
                         loader = PyMuPDFLoader(tmp_file_path)
                         docs = loader.load()
                         
-                        # Optimization: Larger chunk size keeps projects/jobs/tables intact
+                        # Chunking setup
                         text_splitter = RecursiveCharacterTextSplitter(
                             chunk_size=1200, 
                             chunk_overlap=200,
@@ -109,22 +155,19 @@ with st.sidebar:
         st.session_state.processed_files = set() 
         st.rerun()
 
+# -------------------------------
 # 5️⃣ Display Chat History
+# -------------------------------
 for msg in st.session_state.messages:
     if isinstance(msg, HumanMessage):
         st.chat_message("user").write(msg.content)
     elif isinstance(msg, AIMessage):
         st.chat_message("assistant").write(msg.content)
 
-# Initialize Reranker
-@st.cache_resource
-def get_reranker():
-    return Ranker()
-
 # -------------------------------
 # 6️⃣ User Input & True Hybrid RAG Logic
 # -------------------------------
-user_query = st.chat_input("Start Quering...")
+user_query = st.chat_input("Start Querying...")
 if user_query:
     st.chat_message("user").write(user_query)
     
@@ -147,7 +190,7 @@ if user_query:
         embeddings = get_embeddings()
         query_vector = embeddings.embed_query(search_query)
         
-        # Calls the SQL match_documents function with RRF logic
+        # Calls SQL match_documents function with RRF logic
         response = supabase.rpc(
             "match_documents", 
             {
@@ -158,7 +201,7 @@ if user_query:
         ).execute()
         
         if response.data:
-            st.info(f"Database retrieved {len(response.data)} matching counts using RRF Hybrid Search. Reranking...")
+            st.info(f"Database retrieved {len(response.data)} matching candidates via RRF Hybrid Search. Reranking...")
             
             # Format database results for FlashRank
             pass_passages = [
@@ -175,18 +218,15 @@ if user_query:
             rerank_request = RerankRequest(query=search_query, passages=pass_passages)
             reranked_results = ranker.rerank(rerank_request)
             
-            # Take top 8 post-rerank blocks
+            # Take top 10 post-rerank blocks
             top_n = reranked_results[:10]
-            
             context = "\n\n".join([r["text"] for r in top_n])
-            st.success(f"Successfully reranked down to top 10 most relevant data.")
+            st.success("Successfully reranked down to top 10 most relevant chunks.")
             
     except Exception as e:
-        st.error(f"True Hybrid Search or Reranking failed: {e}")
+        st.error(f"Hybrid Search or Reranking failed: {e}")
         
-    # Step C: Construct clean LLM Input History
-    messages_for_llm = []
-    
+    # Step C: Construct LLM Prompt Input
     system_instruction = (
         "You are an expert document analysis assistant. Answer the user's question accurately using only "
         "the provided Context below. If the answer cannot be derived from the context, explicitly state "
@@ -195,22 +235,48 @@ if user_query:
     )
     
     recent_messages = st.session_state.messages[-6:]
-    
-    messages_for_llm.append(SystemMessage(content=system_instruction))
+    messages_for_llm = [SystemMessage(content=system_instruction)]
     messages_for_llm.extend(recent_messages)
     messages_for_llm.append(HumanMessage(content=user_query))
         
-    # Step D: Response Generation
+    # Step D: Response Generation & LLM-as-a-Judge Evaluation
     with st.chat_message("assistant"):
         response_placeholder = st.empty()
         full_response = ""
         try:
+            # Stream the main answer to the UI
             for chunk in llm.stream(messages_for_llm):
                 full_response += chunk.content
                 response_placeholder.markdown(full_response + "▌")
             response_placeholder.markdown(full_response)
             
+            # Append interaction to chat history
             st.session_state.messages.append(HumanMessage(content=user_query))
             st.session_state.messages.append(AIMessage(content=full_response))
+            
+            # -------------------------------
+            # ⚖️ Execute LLM-as-a-Judge Step
+            # -------------------------------
+            with st.status("⚖️ Running LLM Judge evaluation...", expanded=False) as status:
+                evaluation = evaluate_response_faithfulness(
+                    query=user_query,
+                    context=context,
+                    response=full_response
+                )
+                
+                score = evaluation.get("score", "UNKNOWN")
+                reasoning = evaluation.get("reasoning", "No detailed reasoning provided.")
+                confidence = evaluation.get("confidence", 0.0)
+                
+                if score == "PASS":
+                    status.update(label=f"✅ LLM Judge: Faithfulness Check Passed ({confidence*100:.0f}% confidence)", state="complete")
+                    st.success(f"**Verdict:** {score}\n\n**Reasoning:** {reasoning}")
+                elif score == "FAIL":
+                    status.update(label="🚨 LLM Judge: Grounding Issue / Hallucination Warning", state="error")
+                    st.warning(f"**Verdict:** {score}\n\n**Reasoning:** {reasoning}")
+                else:
+                    status.update(label=f"ℹ️ LLM Judge Status: {score}", state="complete")
+                    st.info(f"**Verdict:** {score}\n\n**Reasoning:** {reasoning}")
+
         except Exception as e:
-            st.error(f"An error occurred: {e}")
+            st.error(f"An error occurred during response generation: {e}")
