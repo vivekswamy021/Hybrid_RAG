@@ -227,7 +227,7 @@ if user_query:
         st.error(f"Hybrid Search or Reranking failed: {e}")
         
     # Step C: Construct LLM Prompt Input
-  system_instruction =
+    system_instruction =
     ("You are a strict document QA assistant. Answer the question using ONLY the facts explicitly "
     "stated in the Context below. Do not use outside knowledge or make assumptions. "
     "If the answer cannot be directly derived from the context, respond strictly with: "
